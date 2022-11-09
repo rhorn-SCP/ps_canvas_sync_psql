@@ -112,25 +112,16 @@ foreach ($table_name in $mirrortables)
             $api_url_prefix = "https://setoncatholic.powerschool.com/ws/schema/query/org.setoncatholic.$table_name" + "?page=$pgnm&pagesize=1000"
         
             if($table_name -eq "assignments")
-            {
-                $results = (Invoke-WebRequest -Headers $headers -Method POST -Body $termbody -Uri $api_url_prefix)
-            }
+                {$results = (Invoke-WebRequest -Headers $headers -Method POST -Body $termbody -Uri $api_url_prefix)}
             elseif($table_name -eq "assignment_scores")
-            {
-                $results = (Invoke-WebRequest -Headers $headers -Method POST -Body $termbody -Uri $api_url_prefix)
-            }
+                {$results = (Invoke-WebRequest -Headers $headers -Method POST -Body $termbody -Uri $api_url_prefix)}
             elseif($table_name -eq "CC")
-            {
-                $results = (Invoke-WebRequest -Headers $headers -Method POST -Body $yearbody -Uri $api_url_prefix)
-            }
+                {$results = (Invoke-WebRequest -Headers $headers -Method POST -Body $yearbody -Uri $api_url_prefix)}
             else
-            {
-                $results = (Invoke-WebRequest -Headers $headers -Method POST -Uri $api_url_prefix)
-            }
+                {$results = (Invoke-WebRequest -Headers $headers -Method POST -Uri $api_url_prefix)}
+            
             $results_obj = ConvertFrom-Json($results.Content)
-
-            ### increment number of records for periodic commit of records
-            $lines_to_commit=$lines_to_commit+$results_obj.record.Count
+            $lines_to_commit=$lines_to_commit+$results_obj.record.Count ### increment number of records for periodic commit of records
 
             $lines = foreach ($rec in $results_obj.record)
             {
@@ -166,7 +157,6 @@ foreach ($table_name in $mirrortables)
             }
         } while ($results_obj.record.Count -eq 1000)
 
-        ### Reached end of try statement
         Write-Host "Table $table_name complete."
 
     }
@@ -179,100 +169,11 @@ foreach ($table_name in $mirrortables)
 
 #endregion
 
-<#
-#region MIRROR ALL ASSIGNMENTS SCORES
-#########################################################################
-#########################################################################
-
-#### setup array for all tables to be mirrored. If adding a new table, need to just add it here.
-$mirrortables = @("assignment_scores")
-
-##$mirrortables = @("u_stu_contact") ##,"pgfinalgrades","scheduleCC")
-$body = "{""termids"": ["+$termbody+"]}"
-$lines_to_commit=0
-$lines=@()
-
-foreach ($table_name in $mirrortables)
-{    
-    $lines += "TRUNCATE TABLE [dbo].[$table_name]"
-    $pgnm=1
-    $ransuccesfully = $true
-    $name_string="[course_number],[lastfirst],[assignment_name],[sectionid],[assignmentid],[percent],[studentid],[score],[exempt]"
-
-    ### First page of 1000 records
-    $api_url_prefix = "https://setoncatholic.powerschool.com/ws/schema/query/org.setoncatholic.$table_name" + "?page=$pgnm&pagesize=1000"
-    Write-Host "Executing API pull from Powerschool for $table_name."
-
-    do
-    {
-        Write-Host "Grabbing 1000 records for $table_name, page $pgnm."
-        $api_url_prefix = "https://setoncatholic.powerschool.com/ws/schema/query/org.setoncatholic.$table_name" + "?page=$pgnm&pagesize=1000"
-        try
-        {
-            $results = (Invoke-WebRequest -Headers $headers -Method POST -Body $termbody -Uri $api_url_prefix)
-            $results_obj = ConvertFrom-Json($results.Content)
-            $lines_to_commit=$lines_to_commit+$results_obj.record.Count
-        }
-        catch
-        {
-            Write-Host "Error while running query $table_name"
-        }
-
-        foreach ($rec in $results_obj.record) ## .tables.$table_name
-        {
-            ### [course_number],[lastfirst],[assignment_name],[sectionid],[assignmentid],[percent],[studentid],[score],[exempt]
-            
-            if($rec.score -eq "--") {$scrubbed_score="null"} else {$scrubbed_score="'"+[decimal]$rec.score+"'"}
-            $scrubbed_lastfirst = $rec.lastfirst -replace "'", "''"
-            $scrubbed_assignment_name = $rec.assignment_name -replace "'", "''"
-            $value_string =
-            "INSERT INTO $table_name ($name_string) VALUES (" +
-                "'"+$rec.course_number+"',"+
-                "'"+$scrubbed_lastfirst+"',"+
-                "'"+$scrubbed_assignment_name+"',"+
-                "'"+$rec.sectionid+"',"+
-                "'"+$rec.assignmentid+"',"+
-                "'"+$rec.percent+"',"+
-                "'"+$rec.studentid+"',"+
-                $scrubbed_score+","+
-                "'"+$rec.exempt+"')"
-
-            $lines += $value_string
-        }
-
-        ++$pgnm
-
-        if(($lines_to_commit -ge 4000) -or ($results_obj.record.Count -lt 1000))
-        {
-            $query_string = $lines -join "`r`n" ### Concatenate all array elements together
-            Write-Host "Executing SQL query to add rows to $table_name."
-
-            try
-            {
-                $sql_commit = Invoke-Sqlcmd -ServerInstance $server_name -database $db_name -query $query_string -Username $Username -Password $Password -ErrorAction Stop -Querytimeout 600
-                $lines_to_commit=0
-                $lines=@()
-            }
-            catch
-            {
-                Write-Host $error
-                Exit
-            }
-        }
-    }
-    while ($results_obj.record.Count -eq 1000)
-}
-
-Write-Host "Assignments scores complete."
-#>
-#endregion
-
-
 #region Logging section
 ######################################
 
 $EndDate=(GET-DATE)
-$timespan = NEW-TIMESPAN –Start $StartDate –End $EndDate
+$timespan = NEW-TIMESPAN -Start $StartDate -End $EndDate
 "Run time: " + $timespan.TotalMinutes + " minutes"
 
 $errortostore = $Error -replace "'", "''"
