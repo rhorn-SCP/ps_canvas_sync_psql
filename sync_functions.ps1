@@ -85,8 +85,8 @@ function ExecuteQuery
 {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory=$false,HelpMessage="DSN")]
-        [string[]]$ConnectionString = 'DSN=PostgreSQL35W',
+        [Parameter(Mandatory=$true,HelpMessage="DSN Connection String")]
+        [string[]]$ConnectionString,
         [Parameter(Mandatory=$true,HelpMessage="command to be executed",ValueFromPipeline=$true)]
         [string[]]$command_string
     )
@@ -96,7 +96,6 @@ function ExecuteQuery
         $conn.ConnectionString = $ConnectionString
         $conn.Open()
     }
-    
     process
     {
         $cmd = New-object System.Data.Odbc.OdbcCommand($command_string,$conn)
@@ -114,8 +113,8 @@ function ExecuteNonQuery
 {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory=$false,HelpMessage="DSN")]
-        [string[]]$ConnectionString = 'DSN=PostgreSQL35W',
+        [Parameter(Mandatory=$true,HelpMessage="DSN Connection String")]
+        [string[]]$ConnectionString,
         [Parameter(Mandatory=$true,HelpMessage="command to be executed",ValueFromPipeline=$true)]
         [string[]]$command_string
     )
@@ -125,7 +124,6 @@ function ExecuteNonQuery
         $conn.ConnectionString = $ConnectionString
         $conn.Open()
     }
-    
     process
     {
         $cmd = New-object System.Data.Odbc.OdbcCommand($command_string,$conn)
@@ -136,5 +134,3 @@ function ExecuteNonQuery
         $conn.Close()
     }
 }
-
-$results = ExecuteNonQuery -command_string "insert into temptable values (1,'heya');"

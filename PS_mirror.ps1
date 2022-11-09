@@ -1,27 +1,17 @@
 ﻿
+$error.Clear()
 $StartDate=(GET-DATE)
-
 . .\local_env_variables.ps1
-
-### Set procedure variables
-$server_name = $Env:sqlservername
-$Username = $Env:sql3user
-$Password = $Env:sql3password
-$clientidsecret = $Env:PS_CLIENT_SECRET
-$headers = @{"Authorization"="Bearer "+$api_key}
 
 #region Setup/configuration information
 
-#### setup array for all tables to be mirrored. If adding a new table, need to just add it here.
+### Grab client secret for PS API/PowerQuery calls
+$clientidsecret = $Env:PS_CLIENT_SECRET
+$cnx_string = $Env:PS_MIRROR_CONNECTION_STRING
 
-#### Grab info from config table
-$query_string="select config.value_a yearid from config where config_type='syncyear'"
-$yearquery = Invoke-Sqlcmd -ServerInstance $server_name -database "canvas_currentyear" -query $query_string -Username $Username -Password $Password -ErrorAction Stop -QueryTimeout 600
-$yearbody='{"YEARID":"'+$yearquery.yearid+'"}'
-
-$query_string="select value_a termid from config where config_type='syncterms'"
-$termquery = Invoke-Sqlcmd -ServerInstance $server_name -database "canvas_currentyear" -query $query_string -Username $Username -Password $Password -ErrorAction Stop -QueryTimeout 600
-$termstring=$termquery.termid -join ","
+#### Grab sync configuration from local_env_variables
+$yearbody='{"YEARID":'+$Env:syncyear+'}'
+$termstring=$Env:ps_syncterms -join ","
 $termbody = "{""termids"": [$termstring]}"
 
 #endregion
@@ -73,13 +63,11 @@ $api_key=[Convert]::ToBase64String($clientidsecret_bytes)
 $headers = @{"Authorization"="Basic $api_key";"Content-Type"="application/x-www-form-urlencoded";"Accept"="application/json"}
 $auth_req_body= "grant_type=client_credentials"
 
-$api_url_prefix = "https://setoncatholic.powerschool.com/oauth/access_token/"
-Import-Module SqlServer
+$ps_api_url = "https://setoncatholic.powerschool.com/oauth/access_token/"
 
-$error.Clear()
 try
 {
-    $results = (Invoke-WebRequest -Headers $headers -Body $auth_req_body -Method POST -Uri $api_url_prefix)
+    $results = (Invoke-WebRequest -Headers $headers -Body $auth_req_body -Method POST -Uri $ps_api_url)
     $results = ConvertFrom-Json $results.Content
     $api_key = $results.access_token
 }
@@ -90,8 +78,6 @@ catch
 }
 
 ############## Begin to code to mirror PS ###############
-
-$error.Clear()
 
 $headers = @{"Authorization"="Bearer $api_key";
                 "Accept"="application/json; charset=utf-8";
@@ -130,12 +116,10 @@ $mirrortables = @(
 
 foreach ($table_name in $mirrortables)
 {
-    $error.Clear()
     try
     {
         $pgnm=1
-        $lines=@()
-        $lines += "TRUNCATE TABLE [dbo].[$table_name]"
+        $sql_commit = ExecuteNonQuery -ConnectionString $cnx_string -command_string "TRUNCATE TABLE $table_name;"
         $lines_to_commit=0
 
         ### First page of 1000 records
@@ -147,7 +131,10 @@ foreach ($table_name in $mirrortables)
             Write-Host "Grabbing 1000 records for $table_name, page $pgnm."
             $api_url_prefix = "https://setoncatholic.powerschool.com/ws/schema/query/org.setoncatholic.$table_name" + "?page=$pgnm&pagesize=1000"
         
-            if($table_name -eq "assignments") {$results = (Invoke-WebRequest -Headers $headers -Method POST -Body $termbody -Uri $api_url_prefix)}
+            if($table_name -eq "assignments")
+            {
+                $results = (Invoke-WebRequest -Headers $headers -Method POST -Body $termbody -Uri $api_url_prefix)
+            }
             elseif($table_name -eq "assignment_scores")
             {
                 $results = (Invoke-WebRequest -Headers $headers -Method POST -Body $termbody -Uri $api_url_prefix)
@@ -165,7 +152,7 @@ foreach ($table_name in $mirrortables)
             ### increment number of records for periodic commit of records
             $lines_to_commit=$lines_to_commit+$results_obj.record.Count
 
-            foreach ($rec in $results_obj.record)
+            $lines = foreach ($rec in $results_obj.record)
             {
                 $sqlrow_names = @()
                 $sqlrow_values = @()
@@ -181,9 +168,9 @@ foreach ($table_name in $mirrortables)
                 ### join field names and field values for insert statement
                 $sqlrow_names = $sqlrow_names -replace "'","''"
                 $sqlrow_values = $sqlrow_values -replace "'","''"
-                $name_string = $sqlrow_names -join "],["
+                $name_string = $sqlrow_names -join ","
                 $value_string = $sqlrow_values -join "','"
-                $lines += "INSERT INTO $table_name ([$name_string]) VALUES ('$value_string')"
+                "INSERT INTO $table_name ($name_string) VALUES ('$value_string');"
             }
 
             ### Increment to bring next 1000/page if there are any records left
@@ -194,11 +181,9 @@ foreach ($table_name in $mirrortables)
                 $query_string = $lines -join "`r`n" ### Concatenate all array elements together
                 Write-Host "Executing SQL query to add rows to $table_name."
 
-                $sql_commit = Invoke-Sqlcmd -ServerInstance $server_name -database $db_name -query $query_string -Username $Username -Password $Password -ErrorAction Stop -Querytimeout 600
+                $sql_commit = ExecuteNonQuery -ConnectionString $cnx_string -command_string $query_string
                 $lines_to_commit=0
-                $lines=@()
             }
-
         } while ($results_obj.record.Count -eq 1000)
 
         ### Reached end of try statement
@@ -312,7 +297,7 @@ $timespan = NEW-TIMESPAN –Start $StartDate –End $EndDate
 
 $errortostore = $Error -replace "'", "''"
 $query = "insert into job_results values ('"+$EndDate+"','PS Mirror',"+$timespan.TotalMinutes+","+$error.Count+",'"+$errortostore+"')"
-$results = (Invoke-Sqlcmd -ServerInstance $server_name -database "job_logs" -query $query -Username $Username -Password $Password -Querytimeout 600)
+$results = (ExecuteNonQuery -ConnectionString $Env:JOB_LOGS_CONNECTION_STRING -command_string $query)
 
 
 #endregion
