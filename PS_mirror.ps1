@@ -2,6 +2,7 @@
 $error.Clear()
 $StartDate=(GET-DATE)
 . .\local_env_variables.ps1
+. .\sync_functions.ps1
 
 #region Setup/configuration information
 
@@ -299,6 +300,6 @@ $errortostore = $Error -replace "'", "''"
 $query = "insert into job_results values ('"+$EndDate+"','PS Mirror',"+$timespan.TotalMinutes+","+$error.Count+",'"+$errortostore+"')"
 $results = (ExecuteNonQuery -ConnectionString $Env:JOB_LOGS_CONNECTION_STRING -command_string $query)
 
-
 #endregion
 
+pause
