@@ -11,7 +11,7 @@ function CanvasRESTCall($url, $method, $body, $event, $comment, $jobname)
     $api_key = "3925~lTUMZwIlZTksziBGPfzcyWgFD107hHGqs6CInmD9HTqsoaPmEdCIHygBw13XeQ4j"
     $headers = @{"Authorization"="Bearer "+$api_key;"Content-Type"="application/json; charset=utf-8"}
 
-    $jobsuccess=1
+    $jobsuccess='true'
     try
     {
         if($method -eq "GET")
@@ -53,32 +53,16 @@ function CanvasRESTCall($url, $method, $body, $event, $comment, $jobname)
     }
     catch
     {
-        $jobsuccess=0
+        $jobsuccess='false'
         $response = $_.Exception.ToString()
     }
     ###$response = $response -replace "'","''"
     $body_json = $body_json -replace "'","''"
     $query_string = "insert into REST_events 
                         (time, event, comment, successful, url, body, response, method, jobname) 
-                        values (sysdate(3), '$event','$comment', $jobsuccess, '$api_url','$body_json', '','$method','$jobname');"
-    $store_event = MySQLExecuteNonQuery -db_name "job_logs" -command_string $query_string
-    #$store_event = Invoke-Sqlcmd -ServerInstance $server_name -database $db_name -query $query_string -Username $Username -Password $Password
+                        values (CURRENT_TIMESTAMP, '$event','$comment', $jobsuccess, '$api_url','$body_json', '','$method','$jobname');"
+    $store_event = (ExecuteNonQuery -ConnectionString $Env:JOB_LOGS_CONNECTION_STRING -command_string $query_string)
     return $content
-}
-
-function MirrorStatusCheck($query_results, $table_name, $server_name, $db_name, $Username, $Password)
-{
-    #### Set mirror status for table in config to true if query returns rows
-    if($query_results)
-    {
-        $query_string=
-        "
-            update canvas_currentyear.dbo.config
-            set value_b=1
-            where value_a in ('"+$table_name+"') and config_type='canvasmirror'
-        "
-        $result=Invoke-Sqlcmd -ServerInstance $server_name -database $db_name -query $query_string -Username $Username -Password $Password
-    }
 }
 
 function ExecuteQuery
