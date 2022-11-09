@@ -12,7 +12,7 @@ $cnx_string = $Env:PS_MIRROR_CONNECTION_STRING
 
 #### Grab sync configuration from local_env_variables
 $yearbody='{"YEARID":'+$Env:syncyear+'}'
-$termstring=$Env:ps_syncterms -join ","
+$termstring=($Env:ps_syncterms -split " ") -join ","
 $termbody = "{""termids"": [$termstring]}"
 
 #endregion
@@ -92,28 +92,7 @@ $db_name="PS_mirror"
 
 #region REST call and db store section
 
-$mirrortables = @(
-    "terms"
-    ,"u_def_ext_students"
-    ,"CC"
-    ,"person"
-    ,"personemailaddresses"
-    ,"personaddresses"
-    ,"personphonenumbers"
-    ,"studentcontactassoc"
-    ,"studentcontactdetail"
-    ,"teachers"
-    ,"users"
-    ,"students"
-    ,"courses"
-    ,"sections"
-    ,"sectionteacher"
-    ##,"pgfinalgrades"
-    ##,"scheduleCC"
-    ##,"schedulesections"
-    ##,"assignments"
-    ##,"assignment_scores"
-    )
+$mirrortables = $Env:ps_mirror_tables -split " "
 
 foreach ($table_name in $mirrortables)
 {
@@ -301,5 +280,3 @@ $query = "insert into job_results values ('"+$EndDate+"','PS Mirror',"+$timespan
 $results = (ExecuteNonQuery -ConnectionString $Env:JOB_LOGS_CONNECTION_STRING -command_string $query)
 
 #endregion
-
-pause
