@@ -13,7 +13,6 @@ function CommitTable()
     )
     process
     {
-        $StartRun=(GET-DATE)
         $records_string = $rowval_array -join ","
         $query_string = "TRUNCATE TABLE " + $table_name + ";`r`n"
         $query_string += "INSERT INTO " + $table_name + " " + $column_names + "`r`nVALUES`r`n" + $records_string + ";"
@@ -29,8 +28,6 @@ function CommitTable()
             Write-Host $error
         }
         Write-Host "$table_name complete."
-        $EndRun=(GET-DATE)
-        NEW-TIMESPAN -Start $StartRun -End $EndRun
     }
     end{}
 }
@@ -41,12 +38,9 @@ $error.Clear()
 . .\local_env_variables.ps1
 . .\sync_functions.ps1
 
-$TotalDatabaseCommitTime = $null
-
 #region Setup code - db names, paths, headers, etc
-
-### Set procedure variables
-$db_name = "canvas_currentyear"
+$termids = $Env:canvas_syncterms -split " "
+$termidstring = "'" + ($termids -join "','") + "'"
 
 #### Which tables to mirror
 $query_string="select * from config;"
@@ -62,6 +56,7 @@ $table_statuses = foreach ($stat in $mirror_status) {@{$stat.table_name=$stat.ne
 if($table_statuses.accounts -eq 1)
 {
     $table_name = "accounts"
+    Write-Host "Starting $table_name."
     $api_url_prefix = "https://setoncatholic.instructure.com/api/v1/accounts/1/sub_accounts?per_page=1000"
     $results = (CanvasRESTCall -url $api_url_prefix -body "" -method "GET" -event "mirror.accounts" -comment "" -jobname "Canvas Mirror")
 
@@ -86,13 +81,8 @@ if($table_statuses.accounts -eq 1)
     }
     
     $column_names = " (id,name,workflow_state,parent_account_id,root_account_id,uuid,default_storage_quota_mb,default_user_storage_quota_mb,default_group_storage_quota_mb,default_time_zone,sis_account_id,sis_import_id,integration_id)"
-    $DatabaseCommitTime = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
-    $TotalDatabaseCommitTime = $TotalDatabaseCommitTime + $DatabaseCommitTime
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
-
-#########################################################################################
-##### ENDED RIGHT HERE NEED TO CHANGE THE CommitTable function in all the below
-#########################################################################################
 
 #endregion
 
@@ -103,6 +93,7 @@ if($table_statuses.accounts -eq 1)
 if($table_statuses.terms -eq 1)
 {
     $table_name = "terms"
+    Write-Host "Starting $table_name."
     $api_url_prefix = "https://setoncatholic.instructure.com/api/v1/accounts/1/terms?per_page=1000"
     $results = (CanvasRESTCall -url $api_url_prefix -body "" -method "GET" -event "mirror.terms" -comment "" -jobname "Canvas Full Mirror")
     $records_string = @()
@@ -124,8 +115,7 @@ if($table_statuses.terms -eq 1)
     }
 
     $column_names = " (id,name,start_at,end_at,created_at,workflow_state,grading_period_group_id,sis_term_id,sis_import_id)"
-    $DatabaseCommitTime = CommitTable -table_name $table_name  -db_name $db_name -column_names $column_names -rowval_array $records_string
-    $TotalDatabaseCommitTime = $TotalDatabaseCommitTime + $DatabaseCommitTime
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 #endregion
 
@@ -136,9 +126,11 @@ if($table_statuses.terms -eq 1)
 if($table_statuses.users -eq 1)
 {
     $table_name = "users"
+    Write-Host "Starting $table_name."
     $api_url_prefix = "https://setoncatholic.instructure.com/api/v1/accounts/self/users?per_page=1000"
     $results = (CanvasRESTCall -url $api_url_prefix -body "" -method "GET" -event "mirror.users" -comment "" -jobname "Canvas Full Mirror")
     $records_string = @()
+    $rec_count = 0
 
     ### Create T-SQL statement to execute
     $records_string = foreach($r in $results)
@@ -159,12 +151,15 @@ if($table_statuses.users -eq 1)
         $values_string = $values -join "','"
         "('" + $values_string + "')`r`n"
 
+        $rec_count++
+        if ($rec_count % 100 -eq 0)
+        {
+            Write-Host "At user record $rec_count."
+        }
     }
     
     $column_names = " (id,name,created_at,sortable_name,short_name,sis_user_id,integration_id,sis_import_id,root_account,login_id)"
-    $DatabaseCommitTime = CommitTable -table_name $table_name -db_name $db_name -column_names $column_names -rowval_array $records_string
-    $TotalDatabaseCommitTime = $TotalDatabaseCommitTime + $DatabaseCommitTime
-
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -175,10 +170,10 @@ if($table_statuses.users -eq 1)
 
 if($table_statuses.observees -eq 1)
 {
-    Write-Host "Starting observees."
     $table_name = "observees"
+    Write-Host "Starting $table_name."
     $query_string = "select id, sis_user_id from users where left(login_id,8)<> 'DISABLED' and (left(sis_user_id,7)<>'student' or sis_user_id is null);"
-    $firstelement, $users = @(MySQLExecuteQuery -query_string $query_string)
+    $users = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
 
     $rec_count = 0
     $reccount_max = $users.Count
@@ -202,22 +197,6 @@ if($table_statuses.observees -eq 1)
                 }
             }
 
-<#
-            if (($observees.Count -gt 0) -AND $observees )
-            {
-                foreach ($ob in $observees)
-                {
-                    $values_array = @($u.id -replace "'","''")
-                    $values_array += @($u.sis_user_id -replace "'","''")
-                    foreach($f in $ob.psobject.properties)
-                    {
-                        $values_array += $f.Value -replace "'","''"
-                    }
-                    $values_string = $values_array -join "','"
-                    $records_string += "('" + $values_string + "')`r`n"
-                }
-            }
-#>
             if ($rec_count % 100 -eq 0)
             {
                 Write-Host "Enumerating users for observees, at user record $rec_count of $reccount_max."
@@ -225,8 +204,7 @@ if($table_statuses.observees -eq 1)
     }
     
     $column_names = " (observer_id,observer_sis_user_id,id,name,created_at,sortable_name,short_name,sis_user_id,integration_id,sis_import_id,root_account,login_id,observation_link_root_account_ids)"
-    $DatabaseCommitTime = CommitTable -table_name $table_name  -db_name $db_name -column_names $column_names -rowval_array $records_string
-    $TotalDatabaseCommitTime = $TotalDatabaseCommitTime + $DatabaseCommitTime
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 #endregion
 
@@ -234,20 +212,13 @@ if($table_statuses.observees -eq 1)
 #########################################################################
 #########################################################################
 
-
-
 if($table_statuses.courses -eq 1)
 {
-    Write-Host "Starting courses."
-
-    ########## Pull terms from config table to use to grab courses we are syncing #############
-    $query_string="select value_a ps_termid, value_b canvas_termid from config where config_type='syncterms';"
-    $firstelement, $terms = @(MySQLExecuteQuery -query_string $query_string)
-
     $table_name = "courses"
+    Write-Host "Starting $table_name."
     $records_string = @()
 
-    $records_string = foreach ($t in $terms.canvas_termid)
+    $records_string = foreach ($t in $termids)
     {
         Write-Host "Fetching courses for term $t."
         $api_url_prefix = "https://setoncatholic.instructure.com/api/v1/accounts/1/courses?per_page=100&enrollment_term_id=$t"
@@ -273,8 +244,7 @@ if($table_statuses.courses -eq 1)
     }
     
     $column_names = " (sis_course_id,short_name,long_name,account_id,enrollment_term_id,id,workflow_state,apply_assignment_group_weights)"
-    $DatabaseCommitTime = CommitTable -table_name $table_name  -db_name $db_name -column_names $column_names -rowval_array $records_string
-    $TotalDatabaseCommitTime = $TotalDatabaseCommitTime + $DatabaseCommitTime
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -283,14 +253,13 @@ if($table_statuses.courses -eq 1)
 #########################################################################
 #########################################################################
 
-
 if($table_statuses.sections -eq 1)
 {
-    Write-Host "Starting sections."
     ### Grab all the courses from database. Put it into $courses
     $query_string="select distinct id from courses;"
-    $firstelement, $courses = @(MySQLExecuteQuery -query_string $query_string)
+    $courses = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
     $table_name = "sections"
+    Write-Host "Starting $table_name."
     $records_string = @()
 
     $rec_count = 0
@@ -328,8 +297,7 @@ if($table_statuses.sections -eq 1)
     }
 
     $column_names = " (sis_section_id,sis_course_id,name,course_id,id,nonxlist_course_id)"
-    $DatabaseCommitTime = CommitTable -table_name $table_name  -db_name $db_name -column_names $column_names -rowval_array $records_string
-    $TotalDatabaseCommitTime = $TotalDatabaseCommitTime + $DatabaseCommitTime
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -340,11 +308,11 @@ if($table_statuses.sections -eq 1)
 
 if($table_statuses.enrollments -eq 1)
 {
-    Write-Host "Starting enrollments."
+    $table_name = "enrollments"
+    Write-Host "Starting $table_name."
     ### Grab all the sections from database. Put it into $courses
     $query_string="select distinct id from sections;"
-    $firstelement, $sections = @(MySQLExecuteQuery -query_string $query_string)
-    $table_name = "enrollments"
+    $sections = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
     $records_string = @()
 
     $rec_count = 0
@@ -402,8 +370,7 @@ if($table_statuses.enrollments -eq 1)
                         user_url,
                         id
                     )"
-    $DatabaseCommitTime = CommitTable -table_name $table_name  -db_name $db_name -column_names $column_names -rowval_array $records_string
-    $TotalDatabaseCommitTime = $TotalDatabaseCommitTime + $DatabaseCommitTime
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -418,6 +385,9 @@ if($table_statuses.grades -eq 1)
     # IMPORT GRADES
     #########################################################################
 
+    $table_name = "grades"
+    Write-Host "Starting $table_name."
+
     ### Grab all the courses from database. Put it into $courses
     $query_string=
     "
@@ -425,10 +395,9 @@ if($table_statuses.grades -eq 1)
         from sections s
         inner join courses c
             on c.id=s.course_id
-        where c.enrollment_term_id in (SELECT value_b FROM config WHERE config_type = 'syncterms') and c.workflow_state='available';
+        where c.enrollment_term_id in ($termidstring) and c.workflow_state='available';
     "
-    $firstelement, $sections = @(MySQLExecuteQuery -query_string $query_string)
-    $table_name = "grades_active"
+    $sections = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
     
     $rec_count = 0
     $reccount_max = $sections.Count
@@ -472,8 +441,7 @@ if($table_statuses.grades -eq 1)
     }
 
     $column_names = " (sis_course_id,sis_section_id,user_id,sis_user_id,sortable_name,role_id,role_type,section_id,course_id,user_url,grade,id)"
-    $DatabaseCommitTime = CommitTable -table_name $table_name  -db_name $db_name -column_names $column_names -rowval_array $records_string
-    $TotalDatabaseCommitTime = $TotalDatabaseCommitTime + $DatabaseCommitTime
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 #endregion
 
@@ -486,12 +454,13 @@ if($table_statuses.assignments -eq 1)
     ### assignments  #############
     ##############################
 
+    Write-Host "Starting $table_name."
+    $table_name = "assignments"
+
     ### Grab all the courses from database. Put it into $courses
     $query_string=
-    "select * from courses where enrollment_term_id in (SELECT value_b FROM config WHERE config_type = 'syncterms')"
-    $firstelement, $courses = @(MySQLExecuteQuery -query_string $query_string)
-
-    $table_name = "assignments"
+    "select * from courses where enrollment_term_id in ($termidstring)"
+    $courses = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
     $records_string = @()
     $rec_count = 0
     $reccount_max = $courses.Count
@@ -528,14 +497,14 @@ if($table_statuses.assignments -eq 1)
     }
 
     $column_names = " (id,due_at,points_possible,grading_type,assignment_group_id,created_at,updated_at,omit_from_final_grade,course_id,name,workflow_state,muted,html_url,sis_assignment_id,published)"
-    $DatabaseCommitTime = CommitTable -table_name $table_name  -db_name $db_name -column_names $column_names -rowval_array $records_string
-    $TotalDatabaseCommitTime = $TotalDatabaseCommitTime + $DatabaseCommitTime
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
     
     ##############################
     ### assignment submissions ###
     ##############################
 
     $table_name = "assignment_submissions"
+    Write-Host "Starting $table_name."
     $records_string = @()
     $rec_count = 0
     $reccount_max = $courses.Count
@@ -578,9 +547,7 @@ if($table_statuses.assignments -eq 1)
     }
 
     $column_names = " (id,grade,score,submitted_at,assignment_id,user_id,workflow_state,grade_matches_current_submission,graded_at,grader_id,excused,late,missing,entered_grade,entered_score,preview_url)"
-    $DatabaseCommitTime = CommitTable -table_name $table_name  -db_name $db_name -column_names $column_names -rowval_array $records_string
-    $TotalDatabaseCommitTime = $TotalDatabaseCommitTime + $DatabaseCommitTime
-
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -590,16 +557,15 @@ if($table_statuses.assignments -eq 1)
 ### Reset mirror status so that we can save on mirror run times
 $query_string=
 "
-    update canvas_currentyear.config
-    set needs_mirror=0
-    where table in ('users','observees','courses','sections','enrollments');'
+    update public.config
+    set needs_mirror=false
+    where table_name in ('users','observees','courses','sections','enrollments');
 "
-$store_event = ExecuteNonQuery -db_name "canvas_currentyear" -command_string $query_string
+$store_event = ExecuteNonQuery -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING -command_string $query_string
 
 ### report time span to console
 $EndDate=(GET-DATE)
 $timespan = NEW-TIMESPAN -Start $StartDate -End $EndDate
 "Run time: " + $timespan.TotalMinutes + " minutes"
-"Commit time:" + $TotalDatabaseCommitTime.TotalMinutes + " minutes"
-
+pause
 #endregion
