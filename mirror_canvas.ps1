@@ -14,8 +14,8 @@ function CommitTable()
     process
     {
         $records_string = $rowval_array -join ","
-        $query_string = "TRUNCATE TABLE " + $table_name + ";`r`n"
-        $query_string += "INSERT INTO " + $table_name + " " + $column_names + "`r`nVALUES`r`n" + $records_string + ";"
+        $query_string = "TRUNCATE TABLE canvas_currentyear." + $table_name + ";`r`n"
+        $query_string += "INSERT INTO canvas_currentyear." + $table_name + " " + $column_names + "`r`nVALUES`r`n" + $records_string + ";"
         $query_string = $query_string -replace ",''", ",null" ### replace '' with null
         
         Write-Host "Executing SQL query to create $table_name."
@@ -43,8 +43,8 @@ $termids = $Env:canvas_syncterms -split " "
 $termidstring = "'" + ($termids -join "','") + "'"
 
 #### Which tables to mirror
-$query_string="select * from config;"
-$mirror_status = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
+$query_string="select * from canvas_currentyear.config;"
+$mirror_status = ExecuteQuery -command_string $query_string -ConnectionString $Env:PSQL_CONNECTION_STRING
 #$mirror_status = $mirror_status[1..($mirror_status.Length-1)]
 $table_statuses = foreach ($stat in $mirror_status) {@{$stat.table_name=$stat.needs_mirror}}
 #endregion
@@ -81,7 +81,7 @@ if($table_statuses.accounts -eq 1)
     }
     
     $column_names = " (id,name,workflow_state,parent_account_id,root_account_id,uuid,default_storage_quota_mb,default_user_storage_quota_mb,default_group_storage_quota_mb,default_time_zone,sis_account_id,sis_import_id,integration_id)"
-    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:PSQL_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -115,7 +115,7 @@ if($table_statuses.terms -eq 1)
     }
 
     $column_names = " (id,name,start_at,end_at,created_at,workflow_state,grading_period_group_id,sis_term_id,sis_import_id)"
-    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:PSQL_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 #endregion
 
@@ -159,7 +159,7 @@ if($table_statuses.users -eq 1)
     }
     
     $column_names = " (id,name,created_at,sortable_name,short_name,sis_user_id,integration_id,sis_import_id,root_account,login_id)"
-    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:PSQL_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -172,8 +172,8 @@ if($table_statuses.observees -eq 1)
 {
     $table_name = "observees"
     Write-Host "Starting $table_name."
-    $query_string = "select id, sis_user_id from users where left(login_id,8)<> 'DISABLED' and (left(sis_user_id,7)<>'student' or sis_user_id is null);"
-    $users = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
+    $query_string = "select id, sis_user_id from canvas_currentyear.users where left(login_id,8)<> 'DISABLED' and (left(sis_user_id,7)<>'student' or sis_user_id is null);"
+    $users = ExecuteQuery -command_string $query_string -ConnectionString $Env:PSQL_CONNECTION_STRING
 
     $rec_count = 0
     $reccount_max = $users.Count
@@ -204,7 +204,7 @@ if($table_statuses.observees -eq 1)
     }
     
     $column_names = " (observer_id,observer_sis_user_id,id,name,created_at,sortable_name,short_name,sis_user_id,integration_id,sis_import_id,root_account,login_id,observation_link_root_account_ids)"
-    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:PSQL_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 #endregion
 
@@ -244,7 +244,7 @@ if($table_statuses.courses -eq 1)
     }
     
     $column_names = " (sis_course_id,short_name,long_name,account_id,enrollment_term_id,id,workflow_state,apply_assignment_group_weights)"
-    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:PSQL_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -256,8 +256,8 @@ if($table_statuses.courses -eq 1)
 if($table_statuses.sections -eq 1)
 {
     ### Grab all the courses from database. Put it into $courses
-    $query_string="select distinct id from courses;"
-    $courses = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
+    $query_string="select distinct id from canvas_currentyear.courses;"
+    $courses = ExecuteQuery -command_string $query_string -ConnectionString $Env:PSQL_CONNECTION_STRING
     $table_name = "sections"
     Write-Host "Starting $table_name."
     $records_string = @()
@@ -297,7 +297,7 @@ if($table_statuses.sections -eq 1)
     }
 
     $column_names = " (sis_section_id,sis_course_id,name,course_id,id,nonxlist_course_id)"
-    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:PSQL_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -311,8 +311,8 @@ if($table_statuses.enrollments -eq 1)
     $table_name = "enrollments"
     Write-Host "Starting $table_name."
     ### Grab all the sections from database. Put it into $courses
-    $query_string="select distinct id from sections;"
-    $sections = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
+    $query_string="select distinct id from canvas_currentyear.sections;"
+    $sections = ExecuteQuery -command_string $query_string -ConnectionString $Env:PSQL_CONNECTION_STRING
     $records_string = @()
 
     $rec_count = 0
@@ -370,7 +370,7 @@ if($table_statuses.enrollments -eq 1)
                         user_url,
                         id
                     )"
-    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:PSQL_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -392,12 +392,12 @@ if($table_statuses.grades -eq 1)
     $query_string=
     "
         select distinct s.id
-        from sections s
-        inner join courses c
+        from canvas_currentyear.sections s
+        inner join canvas_currentyear.courses c
             on c.id=s.course_id
         where c.enrollment_term_id in ($termidstring) and c.workflow_state='available';
     "
-    $sections = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
+    $sections = ExecuteQuery -command_string $query_string -ConnectionString $Env:PSQL_CONNECTION_STRING
     
     $rec_count = 0
     $reccount_max = $sections.Count
@@ -441,7 +441,7 @@ if($table_statuses.grades -eq 1)
     }
 
     $column_names = " (sis_course_id,sis_section_id,user_id,sis_user_id,sortable_name,role_id,role_type,section_id,course_id,user_url,grade,id)"
-    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:PSQL_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 #endregion
 
@@ -459,8 +459,8 @@ if($table_statuses.assignments -eq 1)
 
     ### Grab all the courses from database. Put it into $courses
     $query_string=
-    "select * from courses where enrollment_term_id in ($termidstring)"
-    $courses = ExecuteQuery -command_string $query_string -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING
+    "select * from canvas_currentyear.courses where enrollment_term_id in ($termidstring)"
+    $courses = ExecuteQuery -command_string $query_string -ConnectionString $Env:PSQL_CONNECTION_STRING
     $records_string = @()
     $rec_count = 0
     $reccount_max = $courses.Count
@@ -497,7 +497,7 @@ if($table_statuses.assignments -eq 1)
     }
 
     $column_names = " (id,due_at,points_possible,grading_type,assignment_group_id,created_at,updated_at,omit_from_final_grade,course_id,name,workflow_state,muted,html_url,sis_assignment_id,published)"
-    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:PSQL_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
     
     ##############################
     ### assignment submissions ###
@@ -547,7 +547,7 @@ if($table_statuses.assignments -eq 1)
     }
 
     $column_names = " (id,grade,score,submitted_at,assignment_id,user_id,workflow_state,grade_matches_current_submission,graded_at,grader_id,excused,late,missing,entered_grade,entered_score,preview_url)"
-    $commit = CommitTable -table_name $table_name -cnx_string $Env:CANVAS_MIRROR_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
+    $commit = CommitTable -table_name $table_name -cnx_string $Env:PSQL_CONNECTION_STRING -column_names $column_names -rowval_array $records_string
 }
 
 #endregion
@@ -557,15 +557,15 @@ if($table_statuses.assignments -eq 1)
 ### Reset mirror status so that we can save on mirror run times
 $query_string=
 "
-    update public.config
+    update canvas_currentyear.config
     set needs_mirror=false
     where table_name in ('users','observees','courses','sections','enrollments');
 "
-$store_event = ExecuteNonQuery -ConnectionString $Env:CANVAS_MIRROR_CONNECTION_STRING -command_string $query_string
+$store_event = ExecuteNonQuery -ConnectionString $Env:PSQL_CONNECTION_STRING -command_string $query_string
 
 ### report time span to console
 $EndDate=(GET-DATE)
 $timespan = NEW-TIMESPAN -Start $StartDate -End $EndDate
 "Run time: " + $timespan.TotalMinutes + " minutes"
-pause
+
 #endregion

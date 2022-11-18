@@ -8,7 +8,7 @@ $StartDate=(GET-DATE)
 
 ### Grab client secret for PS API/PowerQuery calls
 $clientidsecret = $Env:PS_CLIENT_SECRET
-$cnx_string = $Env:PS_MIRROR_CONNECTION_STRING
+$cnx_string = $Env:PSQL_CONNECTION_STRING
 
 #### Grab sync configuration from local_env_variables
 $yearbody='{"YEARID":'+$Env:syncyear+'}'
@@ -83,7 +83,7 @@ catch
 $headers = @{"Authorization"="Bearer $api_key";
                 "Accept"="application/json; charset=utf-8";
                 "Content-Type"="application/json; charset=utf-8"}
-$db_name="PS_mirror"
+$db_name="ps_mirror"
 
 ### Had to add this line because the REST API calls were fail with error: The underlying connection was closed: An unexpected error occurred on a send
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -99,7 +99,8 @@ foreach ($table_name in $mirrortables)
     try
     {
         $pgnm=1
-        $sql_commit = ExecuteNonQuery -ConnectionString $cnx_string -command_string "TRUNCATE TABLE $table_name;"
+        $query_string = 'TRUNCATE TABLE ps_mirror.' + $table_name + ';'
+        $sql_commit = ExecuteNonQuery -ConnectionString $cnx_string -command_string $query_string
         $lines_to_commit=0
 
         ### First page of 1000 records
@@ -141,7 +142,7 @@ foreach ($table_name in $mirrortables)
                 $sqlrow_values = $sqlrow_values -replace "'","''"
                 $name_string = $sqlrow_names -join ","
                 $value_string = $sqlrow_values -join "','"
-                "INSERT INTO $table_name ($name_string) VALUES ('$value_string');"
+                'INSERT INTO ps_mirror.'+ $table_name + ' (' + $name_string + ') VALUES (''' + $value_string + ''');'
             }
 
             ### Increment to bring next 1000/page if there are any records left
@@ -177,7 +178,7 @@ $timespan = NEW-TIMESPAN -Start $StartDate -End $EndDate
 "Run time: " + $timespan.TotalMinutes + " minutes"
 
 $errortostore = $Error -replace "'", "''"
-$query = "insert into job_results values ('"+$EndDate+"','PS Mirror',"+$timespan.TotalMinutes+","+$error.Count+",'"+$errortostore+"')"
-$results = (ExecuteNonQuery -ConnectionString $Env:JOB_LOGS_CONNECTION_STRING -command_string $query)
+$query = "insert into job_logs.job_results values ('"+$EndDate+"','PS Mirror',"+$timespan.TotalMinutes+","+$error.Count+",'"+$errortostore+"')"
+$results = (ExecuteNonQuery -ConnectionString $Env:PSQL_CONNECTION_STRING -command_string $query)
 
 #endregion

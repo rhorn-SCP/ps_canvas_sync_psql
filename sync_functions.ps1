@@ -58,10 +58,10 @@ function CanvasRESTCall($url, $method, $body, $event, $comment, $jobname)
     }
     ###$response = $response -replace "'","''"
     $body_json = $body_json -replace "'","''"
-    $query_string = "insert into REST_events 
+    $query_string = "insert into job_logs.rest_events 
                         (time, event, comment, successful, url, body, response, method, jobname) 
                         values (CURRENT_TIMESTAMP, '$event','$comment', $jobsuccess, '$api_url','$body_json', '','$method','$jobname');"
-    $store_event = (ExecuteNonQuery -ConnectionString $Env:JOB_LOGS_CONNECTION_STRING -command_string $query_string)
+    $store_event = (ExecuteNonQuery -ConnectionString $Env:PSQL_CONNECTION_STRING -command_string $query_string)
     return $content
 }
 
